@@ -11,7 +11,7 @@ class SearchSpaceRegistry:
             "subsample": trial.suggest_float("subsample", 0.6, 1.0),
             "colsample_bytree": trial.suggest_float("colsample_bytree", 0.6, 1.0),
             "tree_method": "hist",
-            "objective_type": trial.suggest_categorical("objective_type", ["standard", "focal"]),
+            "objective_type": trial.suggest_categorical("objective_type", ["standard", "focal", "kl", "entropy"]),
             "gamma_ind": trial.suggest_float("gamma_ind", 0.5, 3.0) if trial.params.get("objective_type") == "focal" else 0.0
         }
 
@@ -28,8 +28,7 @@ class SearchSpaceRegistry:
     @staticmethod
     def get_ensemble_space(trial: optuna.Trial):
         """
-        Defines the search space for the Hybrid Ensemble.
-        We optimize critical params for BOTH sub-models simultaneously.
+        Optimise params for both models simultaneously.
         """
         return {
             "model_type": "ensemble",
@@ -44,7 +43,6 @@ class SearchSpaceRegistry:
 
     @staticmethod
     def get_search_space(model_name: str, trial: optuna.Trial):
-        """Dispatcher"""
         if model_name == "xgboost":
             return SearchSpaceRegistry.get_xgboost_space(trial)
         elif model_name == "catboost":
