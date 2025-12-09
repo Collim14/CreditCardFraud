@@ -45,6 +45,11 @@ class EnsembleModel(BaseEstimator, ClassifierMixin):
             y_tr = Y.iloc[train_idx]
             self.model_cat.fit(X_tr, y_tr)
             preds_cat = self.model_cat.predict_proba(X_val)[:, 1]
+
+            neg_count = (y_tr == 0).sum()
+            pos_count = (y_tr == 1).sum()
+            weight = neg_count / pos_count
+            self.model_xgb.set_params(scale_pos_weight=weight)
             
             self.model_xgb.fit(X_tr[self.num_features], y_tr)
             preds_xgb = self.model_xgb.predict_proba(X_val[self.num_features])[:, 1]
