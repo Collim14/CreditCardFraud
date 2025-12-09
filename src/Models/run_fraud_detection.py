@@ -61,7 +61,7 @@ class ExperimentRunner:
                 try:
                     preds = model.predict_proba(X_val)[:, 1]
                 except:
-                    preds = model.predict(X_val) # Fallback
+                    preds = model.predict(X_val)
                 
                 score = average_precision_score(y_val, preds)
                 auc_scores.append(score)
@@ -78,7 +78,6 @@ class ExperimentRunner:
         with mlflow.start_run(run_name=f"HPO_{model_name}") as parent_run:
             study = optuna.create_study(direction="maximize")
             
-            # Pass the model_name to the objective
             study.optimize(lambda trial: self.objective(trial, model_name), n_trials=n_trials)
             
             best_trial = study.best_trial
@@ -89,18 +88,13 @@ class ExperimentRunner:
 
 if __name__ == "__main__":
     
-    # Initialize Experiment
     runner = ExperimentRunner(
         experiment_name="Modular_Fraud_System",
         data_path="creditcard.csv",
         target_col="Class"
     )
     
-    # We can now easily run multiple diverse experiments
-    
-    # 1. Optimize XGBoost
     runner.run_experiment("xgboost", n_trials=10)
     
-    # 2. Optimize CatBoost (Zero code changes needed in the loop!)
     runner.run_experiment("catboost", n_trials=10)
     runner.run_experiment("ensemble", n_trials=10)
