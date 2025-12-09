@@ -40,6 +40,9 @@ class ExperimentRunner:
         self.target_col = target_col
         mlflow.set_experiment(experiment_name)
         self.X, self.y = load_data(data_path, target_col=target_col)
+        counts = self.y.value_counts()
+        self.neg_pos_ratio = counts[0] / counts[1]
+        print(f"Calculated scale_pos_weight: {self.neg_pos_ratio:.2f}")
         self.cat_cols = self.X.select_dtypes(include=['object', 'category']).columns.tolist()
         self.num_cols = self.X.select_dtypes(include=['number']).columns.tolist()
     def objective(self, trial, model_name):
@@ -48,6 +51,9 @@ class ExperimentRunner:
             if model_name == "ensemble":
                 params["cat_features"] = self.cat_cols
                 params["num_features"] = self.num_cols
+                params["xgb_scale_pos_weight"] = self.neg_pos_ratio
+            elif model_name == "xgboost":
+                params["scale_pos_weight"] = self.neg_pos_ratio
             model = ModelFactory.create_model(params)
             cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
             auc_scores = []

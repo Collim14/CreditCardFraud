@@ -36,7 +36,6 @@ class SearchSpaceRegistry:
             "xgb_n_estimators": trial.suggest_int("xgb_n_estimators", 100, 300),
             "xgb_max_depth": trial.suggest_int("xgb_max_depth", 3, 8),
             "xgb_learning_rate": trial.suggest_float("xgb_learning_rate", 0.05, 0.2),
-            "xgb_scale_pos_weight": 99,
             "cat_iterations": trial.suggest_int("cat_iterations", 100, 300),
             "cat_depth": trial.suggest_int("cat_depth", 4, 8),
             "cat_learning_rate": trial.suggest_float("cat_learning_rate", 0.05, 0.2),
