@@ -1,0 +1,5 @@
+*.csv
+*.parquet
+mlruns/
+.env
+__pycache__/
