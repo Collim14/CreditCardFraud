@@ -6,9 +6,9 @@ from sklearn.pipeline import Pipeline
 
 def get_preprocessor(X: pd.DataFrame):
     """
-    Creates a scikit-learn ColumnTransformer based on input dataframe types.
+    Creates a scikit ColumnTransformer based on input dataframe types.
     """
-    numeric_cols = X.select_dtypes(include=['int64', 'float64']).columns.tolist()
+    numeric_cols = X.select_dtypes(include=['int8', 'int64','float32', 'float64']).columns.tolist()
     categorical_cols = X.select_dtypes(include=['object', 'category']).columns.tolist()
 
     num_transformer = StandardScaler()

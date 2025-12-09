@@ -27,10 +27,7 @@ class AdvancedXGBClassifier(BaseEstimator, ClassifierMixin):
         return 1.0 / (1.0 + np.exp(-x))
 
     def _custom_objective(self, preds: np.ndarray, dtrain: xgb.DMatrix) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Calculates Gradient and Hessian based on the selected strategy.
-        Note: 'preds' in custom obj are raw log-odds (margins), not probabilities.
-        """
+        
         labels = dtrain.get_label()
         probs = self._sigmoid(preds)
         
@@ -67,7 +64,6 @@ class AdvancedXGBClassifier(BaseEstimator, ClassifierMixin):
         params = self.xgb_params.copy()
         num_rounds = params.pop('n_estimators', 100)
         
-        # Prepare Watchlist
         watchlist = [(dtrain, 'train')]
         if eval_set:
             for i, (ex, ey) in enumerate(eval_set):
