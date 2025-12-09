@@ -7,25 +7,13 @@ from typing import Literal, Tuple, List, Optional
 
 
 class AdvancedXGBClassifier(BaseEstimator, ClassifierMixin):
-    """
-    Custom XGBoost Wrapper supporting:
-    1. Standard LogLoss
-    2. KL-Divergence Regularization (Weighted LogLoss)
-    3. Entropy Regularization (Penalize confidence)
-    4. Focal Loss (Focus on hard/information-rich examples)
-    """
+ 
     def __init__(self, 
                  objective_type: Literal['standard', 'kl', 'entropy', 'focal'] = 'standard',
                  reg_alpha: float = 0.0, 
                  gamma_ind: float = 2.0, 
                  **xgb_params):
-        """
-        Args:
-            objective_type: The type of custom objective.
-            reg_alpha (float): Weight for KL or Entropy regularization (lambda).
-            gamma_ind (float): The focusing parameter for Focal Loss.
-            **xgb_params: Standard XGBoost parameters (max_depth, eta, etc.)
-        """
+       
         self.objective_type = objective_type
         self.reg_alpha = reg_alpha
         self.gamma_ind = gamma_ind
@@ -46,40 +34,27 @@ class AdvancedXGBClassifier(BaseEstimator, ClassifierMixin):
         labels = dtrain.get_label()
         probs = self._sigmoid(preds)
         
-        # KL Divergence / Weighted LogLoss
-        # L = (1 + alpha) * LogLoss
+        # KL Divergence
         if self.objective_type == 'kl':
             weight = 1.0 + self.reg_alpha
             grad = weight * (probs - labels)
             hess = weight * probs * (1.0 - probs)
 
-        # Entropy Regularization
-        # L = LogLoss + alpha * Entropy(p)
-        # Encourages higher entropy (less confidence), good for noisy fraud labels.
+        # Entropy Regularisation
         elif self.objective_type == 'entropy':
-            # Gradient of Entropy term: alpha * p * (1-p) * preds
             grad = (probs - labels) - self.reg_alpha * probs * (1.0 - probs) * preds
             hess = probs * (1.0 - probs) * (1.0 - self.reg_alpha - self.reg_alpha * (1.0 - 2.0 * probs) * preds)
 
-        # Focal Loss
-        # L = -alpha * (1-p_t)^gamma * log(p_t)
-        # Focuses gradients on samples the model is currently getting WRONG.
-        # This effectively replaces the "EntropyGain" logic by focusing on high-info samples.
         elif self.objective_type == 'focal':
             gamma = self.gamma_ind
-            # Compute p_t: probability of the true class
             p_t = labels * probs + (1 - labels) * (1 - probs)
             
-            # First order derivative (Gradient)
-            # This formula is complex, standard implementation below:
             modulator = (1 - p_t) ** gamma
             term1 = gamma * (1 - p_t)**(gamma - 1) * p_t * np.log(p_t + 1e-9)
             grad = modulator * (probs - labels) + term1 * (labels * (1-probs) - (1-labels)*probs)
             
-            # Hessian Approximation (Exact Hessian is unstable for Focal Loss)
-            # We use the upper bound approximation often used in LightGBM/XGB implementations
             hess = (1 - p_t) ** gamma * (probs * (1 - probs))
-            hess = np.maximum(hess, 1e-16) # Stability
+            hess = np.maximum(hess, 1e-16)
 
         else:
             raise ValueError(f"Objective type '{self.objective_type}' should be handled natively in fit(), not here.")
@@ -113,8 +88,6 @@ class AdvancedXGBClassifier(BaseEstimator, ClassifierMixin):
     def predict(self, X):
         if not self.booster_: raise ValueError("Model not fitted")
         dtest = xgb.DMatrix(X)
-        # predict returns raw probs because we set binary:logistic, 
-        # even with custom objective, unless we return margin.
         probs = self.booster_.predict(dtest)
         return (probs > 0.5).astype(int)
 
