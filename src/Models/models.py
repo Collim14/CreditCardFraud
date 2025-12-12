@@ -59,7 +59,8 @@ class AdvancedXGBClassifier(BaseEstimator, ClassifierMixin):
         return grad, hess
 
     def fit(self, X, y, eval_set=None, verbose=False):
-        dtrain = xgb.DMatrix(X, label=y)
+        
+        dtrain = xgb.DMatrix(X, label=y, enable_categorical = True)
         
         params = self.xgb_params.copy()
         num_rounds = params.pop('n_estimators', 100)
@@ -67,7 +68,7 @@ class AdvancedXGBClassifier(BaseEstimator, ClassifierMixin):
         watchlist = [(dtrain, 'train')]
         if eval_set:
             for i, (ex, ey) in enumerate(eval_set):
-                watchlist.append((xgb.DMatrix(ex, label=ey), f'eval_{i}'))
+                watchlist.append((xgb.DMatrix(ex, label=ey, enable_categorical = True), f'eval_{i}'))
 
         obj_func = self._custom_objective if self.objective_type != 'standard' else None
 
@@ -83,15 +84,24 @@ class AdvancedXGBClassifier(BaseEstimator, ClassifierMixin):
 
     def predict(self, X):
         if not self.booster_: raise ValueError("Model not fitted")
-        dtest = xgb.DMatrix(X)
+        dtest = xgb.DMatrix(X, enable_categorical = True)
         probs = self.booster_.predict(dtest)
         return (probs > 0.5).astype(int)
 
     def predict_proba(self, X):
         if not self.booster_: raise ValueError("Model not fitted")
-        dtest = xgb.DMatrix(X)
+        dtest = xgb.DMatrix(X, enable_categorical = True)
         pos_probs = self.booster_.predict(dtest)
         return np.vstack((1 - pos_probs, pos_probs)).T
     def get_booster(self):
         if not self.booster_: raise ValueError("Model not fitted")
         return self.booster_
+    
+    def set_params(self, **params):
+       
+        for p in list(params.keys()):
+            if hasattr(self, p):
+                setattr(self, p, params.pop(p, None))
+    
+        self.xgb_params.update(params)
+        

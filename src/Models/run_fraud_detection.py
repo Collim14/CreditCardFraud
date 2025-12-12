@@ -21,8 +21,7 @@ import mlflow
 import mlflow.sklearn
 import mlflow.xgboost
 
-from data import load_data
-from processing import get_preprocessor
+from data import DataHandler
 from models import AdvancedXGBClassifier
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -34,17 +33,19 @@ from ModelFactory import ModelFactory
 
 
 class ExperimentRunner:
-    def __init__(self, experiment_name, data_path, target_col):
+    def __init__(self, experiment_name, X, y):
         self.experiment_name = experiment_name
-        self.data_path = data_path
-        self.target_col = target_col
         mlflow.set_experiment(experiment_name)
-        self.X, self.y = load_data(data_path, target_col=target_col)
+        self.X, self.y =  X, y
         counts = self.y.value_counts()
         self.neg_pos_ratio = counts[0] / counts[1]
-        print(f"Calculated scale_pos_weight: {self.neg_pos_ratio:.2f}")
-        self.cat_cols = self.X.select_dtypes(include=['object', 'category']).columns.tolist()
-        self.num_cols = self.X.select_dtypes(include=['number']).columns.tolist()
+        self.cat_cols = self.X.select_dtypes(include=['category']).columns.tolist()
+        self.num_cols = self.X.select_dtypes(include=['int8', 'float32', 'float64', 'int16']).columns.tolist()
+      
+        self.X = self.X.convert_dtypes(infer_objects=True)
+       
+        
+
     def objective(self, trial, model_name):
         with mlflow.start_run(nested = True, run_name = f"Trial_{trial.number}"):
             params = SearchSpaceRegistry.get_search_space(model_name=model_name,trial=trial)
@@ -52,7 +53,9 @@ class ExperimentRunner:
                 params["cat_features"] = self.cat_cols
                 params["num_features"] = self.num_cols
                 params["xgb_scale_pos_weight"] = self.neg_pos_ratio
+                params['xgb_enable_categorical'] = True
             elif model_name == "xgboost":
+                params['enable_categorical'] = True
                 params["scale_pos_weight"] = self.neg_pos_ratio
             model = ModelFactory.create_model(params)
             cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
@@ -64,9 +67,9 @@ class ExperimentRunner:
                 y_tr, y_val = self.y.iloc[train_idx], self.y.iloc[val_idx]
             
                 model.fit(X_tr, y_tr)
-                try:
+                if hasattr(model, "predict_proba"):
                     preds = model.predict_proba(X_val)[:, 1]
-                except:
+                else:
                     preds = model.predict(X_val)
                 
                 score = average_precision_score(y_val, preds)
@@ -80,7 +83,7 @@ class ExperimentRunner:
         
             return mean_auc
     def run_experiment(self, model_name, n_trials):
-        print(f"--- Starting Optimization for {model_name} ---")
+        print(f"--- Starting Optimisation for {model_name} ---")
         with mlflow.start_run(run_name=f"HPO_{model_name}") as parent_run:
             study = optuna.create_study(direction="maximize")
             
@@ -93,14 +96,19 @@ class ExperimentRunner:
             mlflow.log_metric("best_cv_score", best_trial.value)
 
 if __name__ == "__main__":
-    
+    data_path="~/Desktop/Credit-Card-Fraud/src/Features/transformed_IEEE.parquet"
+    target_col="isFraud"
+    datah = DataHandler()
+
+    datah.process(data_path, target_col=target_col, transform=False)
     runner = ExperimentRunner(
         experiment_name="Modular_Fraud_System",
-        data_path="creditcard.csv",
-        target_col="Class"
+        X = datah.X,
+        y=datah.y
     )
     
-    runner.run_experiment("xgboost", n_trials=10)
+    runner.run_experiment("ensemble", n_trials=10)
     
     runner.run_experiment("catboost", n_trials=10)
+
     runner.run_experiment("ensemble", n_trials=10)

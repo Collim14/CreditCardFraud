@@ -8,6 +8,7 @@ from sklearn.model_selection import StratifiedKFold
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score
 import mlflow
+from models import AdvancedXGBClassifier
 
 class EnsembleModel(BaseEstimator, ClassifierMixin):
     def __init__(self, cat_features = None, num_features = None):
@@ -25,14 +26,7 @@ class EnsembleModel(BaseEstimator, ClassifierMixin):
             auto_class_weights='Balanced'
         )
         
-        self.model_xgb = XGBClassifier(
-            n_estimators=150, 
-            max_depth=5, 
-            learning_rate=0.1, 
-            eval_metric='logloss',
-            n_jobs=-1,
-            scale_pos_weight=99
-        )
+        self.model_xgb = AdvancedXGBClassifier()
 
         self.meta_model = LogisticRegression()
 
@@ -50,7 +44,6 @@ class EnsembleModel(BaseEstimator, ClassifierMixin):
             pos_count = (y_tr == 1).sum()
             weight = neg_count / pos_count
             self.model_xgb.set_params(scale_pos_weight=weight)
-            
             self.model_xgb.fit(X_tr[self.num_features], y_tr)
             preds_xgb = self.model_xgb.predict_proba(X_val[self.num_features])[:, 1]
             

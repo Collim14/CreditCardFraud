@@ -35,9 +35,12 @@ class SearchSpaceRegistry:
             "xgb_n_estimators": trial.suggest_int("xgb_n_estimators", 100, 300),
             "xgb_max_depth": trial.suggest_int("xgb_max_depth", 3, 8),
             "xgb_learning_rate": trial.suggest_float("xgb_learning_rate", 0.05, 0.2),
+            "xgb_objective_type": trial.suggest_categorical("objective_type", ["standard", "focal", "kl", "entropy"]),
+            "xgb_gamma_ind": trial.suggest_float("gamma_ind", 0.5, 3.0) if trial.params.get("xgb_objective_type") == "focal" else 0.0,
             "cat_iterations": trial.suggest_int("cat_iterations", 100, 300),
             "cat_depth": trial.suggest_int("cat_depth", 4, 8),
             "cat_learning_rate": trial.suggest_float("cat_learning_rate", 0.05, 0.2),
+            "cat_l2_leaf_reg": trial.suggest_float("l2_leaf_reg", 1, 10),
             "meta_C": trial.suggest_float("meta_C", 0.1, 10.0)
         }
 

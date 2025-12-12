@@ -1,5 +1,73 @@
 import pandas as pd
 import numpy as np
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+
+from sklearn import set_config
+import os
+
+
+set_config(transform_output="pandas")
+
+class DataHandler:
+    def __init__(self):
+        self.X = None
+        self.y = None
+    @staticmethod
+    def get_preprocessor(X: pd.DataFrame):
+   
+        numeric_cols = X.select_dtypes(include=['int8', 'int64','float32', 'float64']).columns.tolist()
+        
+        categorical_cols = X.select_dtypes(include=['category']).columns.tolist()
+
+    
+        cat_transformer = OneHotEncoder(handle_unknown='ignore', max_categories=12, min_frequency=3, sparse_output=False, dtype=np.float32)
+
+        preprocessor = ColumnTransformer(
+        transformers=[
+            ('cat', cat_transformer, categorical_cols)
+        ],
+        remainder='passthrough'
+        )
+    
+        return preprocessor
+    def process(self, data_path, target_col, transform = True):
+        self.X, self.y = self.load_data(data_path, target_col)
+        obj_cols = self.X.select_dtypes(include = ['object']).columns.tolist()
+        str_cols = self.X.select_dtypes(include = ['string']).columns.tolist()
+        self.X[obj_cols] = self.X[obj_cols].fillna("")
+        self.X[obj_cols] = self.X[obj_cols].astype('category')
+        self.X[str_cols] = self.X[str_cols].fillna("")
+        self.X[str_cols] = self.X[str_cols].astype('category')
+
+        categorical_cols = self.X.select_dtypes(include=['category']).columns.tolist()
+        print(categorical_cols)
+        
+        
+        
+        if transform:
+            pre = DataHandler.get_preprocessor(self.X)
+        
+            self.X = pre.fit_transform(self.X) 
+        
+    
+        
+        
+
+    @staticmethod
+    def load_data(filepath: str, target_col: str):
+        ext = os.path.splitext(filepath)[1]
+        
+        if ext == '.csv':
+            df = pd.read_csv(filepath, engine="pyarrow", dtype_backend="pyarrow")
+        elif ext == '.parquet':
+            df = pd.read_parquet(filepath, dtype_backend="pyarrow")
+        else:
+            raise ValueError(f"Unsupported file type: {ext}")
+        y = df.pop(target_col)
+        
+        return df, y
+    
 
 def reduce_mem_usage(df: pd.DataFrame) -> pd.DataFrame:
     """Iterates through all columns and modifies data type to reduce memory."""
@@ -28,24 +96,3 @@ def reduce_mem_usage(df: pd.DataFrame) -> pd.DataFrame:
     end_mem = df.memory_usage().sum() / 1024**2
     print(f'Mem. usage decreased to {end_mem:.2f} Mb ({100 * (start_mem - end_mem) / start_mem:.1f}% reduction)')
     return df
-
-def load_data(filepath: str, target_col: str):
-    if filepath.endswith('.csv'):
-        df = pd.read_csv(filepath)
-        df = reduce_mem_usage(df)
-    
-        X = df.drop(columns=[target_col])
-        y = df[target_col]
-        
-    elif filepath.endswith(".parquet"):
-        df = pd.read_parquet(filepath)
-        df = reduce_mem_usage(df)
-    
-        X = df.drop(columns=[target_col])
-        y = df[target_col]
-        
-    else:
-        raise ValueError("Only CSV and Parquet are supported currently")
-        
-    
-    return X, y
