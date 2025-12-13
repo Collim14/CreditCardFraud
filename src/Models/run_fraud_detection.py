@@ -25,7 +25,7 @@ from data import DataHandler
 from models import AdvancedXGBClassifier
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from Utils.model_utils import evaluate_metrics, generate_shap_artifacts
+from Utils.model_utils import evaluate_metrics, generate_shap_artifacts, TimeSeriesValidator
 import shap
 import polars as pl
 from spaces import SearchSpaceRegistry
@@ -58,7 +58,7 @@ class ExperimentRunner:
                 params['enable_categorical'] = True
                 params["scale_pos_weight"] = self.neg_pos_ratio
             model = ModelFactory.create_model(params)
-            cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
+            cv = TimeSeriesValidator(n_splits=3)
             auc_scores = []
         
             for train_idx, val_idx in cv.split(self.X, self.y):
@@ -91,9 +91,10 @@ class ExperimentRunner:
             
             best_trial = study.best_trial
             print(f"Best AUPRC for {model_name}: {best_trial.value:.4f}")
-            
+           
             mlflow.log_params({f"best_{k}": v for k, v in best_trial.params.items()})
             mlflow.log_metric("best_cv_score", best_trial.value)
+            mlflow.log_artifacts()
         with mlflow.start_run(run_name=f"Final_Best_{model_name}"):
             best_params = best_trial.params
             if model_name == "ensemble":

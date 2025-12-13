@@ -6,6 +6,7 @@ import shap
 import mlflow
 import matplotlib.pyplot as plt
 import os
+import numpy as np
 
 def evaluate_metrics(y_true, y_probs):
 
@@ -51,3 +52,18 @@ def generate_shap_artifacts(model, X_sample, feature_names):
 
     if os.path.exists("shap_summary.png"): os.remove("shap_summary.png")
     if os.path.exists("shap_bar.png"): os.remove("shap_bar.png")
+
+class TimeSeriesValidator:
+    def __init__(self, n_splits = 5):
+        self.n_splits = n_splits
+
+    def split(self, X, y):
+        inds = np.arange(len(X))
+        fold_size = len(X) // (self.n_splits + 1)
+        for i in range(self.n_splits):
+            train = fold_size * (i + 1)
+            val = fold_size * (i + 2)
+            train_idx = inds[:train]
+            val_idx = inds[train:val]
+            
+            yield train_idx, val_idx
