@@ -94,6 +94,30 @@ class ExperimentRunner:
             
             mlflow.log_params({f"best_{k}": v for k, v in best_trial.params.items()})
             mlflow.log_metric("best_cv_score", best_trial.value)
+        with mlflow.start_run(run_name=f"Final_Best_{model_name}"):
+            best_params = best_trial.params
+            if model_name == "ensemble":
+                best_params["cat_features"] = self.cat_cols
+                best_params["num_features"] = self.num_cols
+                best_params["xgb_scale_pos_weight"] = self.neg_pos_ratio
+                best_params['xgb_enable_categorical'] = True
+            elif model_name == "xgboost":
+                best_params['enable_categorical'] = True
+                best_params["scale_pos_weight"] = self.neg_pos_ratio
+            final_model = ModelFactory.create_model(best_params)
+            final_model.fit(self.X, self.y)
+            predictions = final_model.predict(self.X.iloc[:5])
+            signature = infer_signature(self.X.iloc[:5], predictions)
+            mlflow.sklearn.log_model(
+                sk_model=final_model,
+                artifact_path="model",
+                signature=signature,
+                registered_model_name="Production_Model" 
+            
+            )
+            print("----Final Production Model Logged----")
+
+
 
 if __name__ == "__main__":
     data_path="~/Desktop/Credit-Card-Fraud/src/Features/transformed_IEEE.parquet"
