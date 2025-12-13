@@ -116,7 +116,7 @@ def predict_transaction(transaction: TransactionInput, background_tasks: Backgro
     REQUEST_COUNT.inc()
     
     if predictor is None:
-        raise HTTPException(status_code=503, detail="Model not initialized")
+        raise HTTPException(status_code=503, detail="Model not initialised")
 
     try:
         features = transaction.features
