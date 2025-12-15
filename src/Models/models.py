@@ -1,4 +1,5 @@
 import numpy as np
+import polars as pl
 import xgboost as xgb
 from sklearn.base import BaseEstimator, ClassifierMixin
 from typing import Literal, Tuple, List, Optional
@@ -22,6 +23,8 @@ class AdvancedXGBClassifier(BaseEstimator, ClassifierMixin):
         
         if 'objective' not in self.xgb_params:
             self.xgb_params['objective'] = 'binary:logistic'
+        if 'device' not in self.xgb_params:
+            self.xgb_params['device'] = 'cuda' if xgb.is_built_with_cuda() else 'cpu'
 
     def _sigmoid(self, x):
         return 1.0 / (1.0 + np.exp(-x))
@@ -59,6 +62,8 @@ class AdvancedXGBClassifier(BaseEstimator, ClassifierMixin):
         return grad, hess
 
     def fit(self, X, y, eval_set=None, verbose=False):
+        if isinstance(X, pl.LazyFrame):
+            X = X.collect()
         
         dtrain = xgb.DMatrix(X, label=y, enable_categorical = True)
         
@@ -84,12 +89,16 @@ class AdvancedXGBClassifier(BaseEstimator, ClassifierMixin):
 
     def predict(self, X):
         if not self.booster_: raise ValueError("Model not fitted")
+        if isinstance(X, pl.LazyFrame):
+            X = X.collect()
         dtest = xgb.DMatrix(X, enable_categorical = True)
         probs = self.booster_.predict(dtest)
         return (probs > 0.5).astype(int)
 
     def predict_proba(self, X):
         if not self.booster_: raise ValueError("Model not fitted")
+        if isinstance(X, pl.LazyFrame):
+            X = X.collect()
         dtest = xgb.DMatrix(X, enable_categorical = True)
         pos_probs = self.booster_.predict(dtest)
         return np.vstack((1 - pos_probs, pos_probs)).T

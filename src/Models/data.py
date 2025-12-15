@@ -1,4 +1,5 @@
 import pandas as pd
+import polars as pl
 import numpy as np
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
@@ -11,62 +12,40 @@ set_config(transform_output="pandas")
 
 class DataHandler:
     def __init__(self):
-        self.X = None
-        self.y = None
-    @staticmethod
-    def get_preprocessor(X: pd.DataFrame):
-   
-        numeric_cols = X.select_dtypes(include=['int8', 'int64','float32', 'float64']).columns.tolist()
-        
-        categorical_cols = X.select_dtypes(include=['category']).columns.tolist()
-
+        self.df = None
+        self.cat_features = []
+        self.num_features = []
+        self.target_col = None
     
-        cat_transformer = OneHotEncoder(handle_unknown='ignore', max_categories=12, min_frequency=3, sparse_output=False, dtype=np.float32)
-
-        preprocessor = ColumnTransformer(
-        transformers=[
-            ('cat', cat_transformer, categorical_cols)
-        ],
-        remainder='passthrough'
-        )
-    
-        return preprocessor
-    def process(self, data_path, target_col, transform = True):
-        self.X, self.y = self.load_data(data_path, target_col)
-        obj_cols = self.X.select_dtypes(include = ['object']).columns.tolist()
-        str_cols = self.X.select_dtypes(include = ['string']).columns.tolist()
-        self.X[obj_cols] = self.X[obj_cols].fillna("")
-        self.X[obj_cols] = self.X[obj_cols].astype('category')
-        self.X[str_cols] = self.X[str_cols].fillna("")
-        self.X[str_cols] = self.X[str_cols].astype('category')
-
-        categorical_cols = self.X.select_dtypes(include=['category']).columns.tolist()
-        print(categorical_cols)
-        
-        
-        
-        if transform:
-            pre = DataHandler.get_preprocessor(self.X)
-        
-            self.X = pre.fit_transform(self.X) 
-        
-    
-        
-        
-
-    @staticmethod
-    def load_data(filepath: str, target_col: str):
-        ext = os.path.splitext(filepath)[1]
+    def process(self, data_path, target_col):
+        self.target_col = target_col
+        ext = os.path.splitext(data_path)[1]
         
         if ext == '.csv':
-            df = pd.read_csv(filepath, engine="pyarrow", dtype_backend="pyarrow")
+            self.df = pl.scan_csv(data_path)
         elif ext == '.parquet':
-            df = pd.read_parquet(filepath, dtype_backend="pyarrow")
+            self.df = pl.scan_parquet(data_path)
         else:
             raise ValueError(f"Unsupported file type: {ext}")
-        y = df.pop(target_col)
+        schema = self.df.collect_schema()
+        casts = {}
+        for col,dtype in schema.items():
+            if col == self.target_col: continue
+            if dtype ==pl.String or dtype == pl.Object:
+                casts[col] = pl.Categorical
+                self.cat_features.append(col)
+            elif dtype in [pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.Float32, pl.Float64]:
+                self.num_features.append(col)
         
-        return df, y
+        print("Dataframe processed")
+
+    def get_hpo_sample(self,time_col, frac = 0.1):
+        total = self.df.select(pl.len()).collect().item()
+        sample = int(frac*total)
+        return self.df.sort(time_col).tail(sample).collect()
+    def get_hpo_sparse(self,time_col, frac = 0.1):
+        sample = int(1/frac)
+        return self.df.sort(time_col).gather_every(sample).collect()
     
 
 def reduce_mem_usage(df: pd.DataFrame) -> pd.DataFrame:
