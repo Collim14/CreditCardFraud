@@ -100,7 +100,11 @@ class AdvancedXGBClassifier(BaseEstimator, ClassifierMixin):
         if isinstance(X, pl.LazyFrame):
             X = X.collect()
         dtest = xgb.DMatrix(X, enable_categorical = True)
+        
+        
         pos_probs = self.booster_.predict(dtest)
+        if self.objective_type != 'standard':
+            pos_probs = self._sigmoid(pos_probs)
         return np.vstack((1 - pos_probs, pos_probs)).T
     def get_booster(self):
         if not self.booster_: raise ValueError("Model not fitted")

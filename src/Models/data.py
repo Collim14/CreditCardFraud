@@ -36,8 +36,9 @@ class DataHandler:
                 self.cat_features.append(col)
             elif dtype in [pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.Float32, pl.Float64]:
                 self.num_features.append(col)
-       
+
         self.df = self.df.with_columns([pl.col(c).cast(t).to_physical() for c,t in casts.items()])
+        
         print("Dataframe processed")
 
     def get_hpo_sample(self,time_col, frac = 0.1):

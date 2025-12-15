@@ -46,10 +46,11 @@ class EnsembleModel(BaseEstimator, ClassifierMixin):
             pdf = data
         if isinstance(pdf, pd.DataFrame):
             pdf = pdf.copy()
-            
             for col in self.cat_features:
                 if col in pdf.columns:
-                    pdf[col] = pdf[col].astype(object).fillna("Missing").astype(str)
+                    pdf[col] = pdf[col].astype(str).fillna("Missing")
+              
+                    pdf[col] = pdf[col].astype("category")
             for col in self.num_features:
                 if col in pdf.columns:
                     pdf[col] = pd.to_numeric(pdf[col], errors='coerce').astype(float)
@@ -85,11 +86,9 @@ class EnsembleModel(BaseEstimator, ClassifierMixin):
             
             self.model_xgb.set_params(scale_pos_weight=weight)
             
-            cols_xgb = self.num_features if self.num_features else X_tr.columns
-            cols_xgb = [c for c in cols_xgb if c in X_tr.columns]
             
-            self.model_xgb.fit(X_tr[cols_xgb], y_tr)
-            preds_xgb = self.model_xgb.predict_proba(X_val[cols_xgb])[:, 1]
+            self.model_xgb.fit(X_tr, y_tr)
+            preds_xgb = self.model_xgb.predict_proba(X_val)[:, 1]
             
             fold_meta_features = np.column_stack((preds_cat, preds_xgb))
             
@@ -106,9 +105,7 @@ class EnsembleModel(BaseEstimator, ClassifierMixin):
         print("Retraining Base Models on full data")
         self.model_cat.fit(X, Y)
         
-        cols_xgb = self.num_features if self.num_features else X.columns
-        cols_xgb = [c for c in cols_xgb if c in X.columns]
-        self.model_xgb.fit(X[cols_xgb], Y)
+        self.model_xgb.fit(X, Y)
         
         self.ensemble_fitted = True
         return self
@@ -119,7 +116,7 @@ class EnsembleModel(BaseEstimator, ClassifierMixin):
     def predict_proba(self, X):
         X_cat = self._to_pandas(X)
         p_cat = self.model_cat.predict_proba(X_cat)[:, 1]
-        p_xgb = self.model_xgb.predict_proba(X[self.num_features])[:, 1]
+        p_xgb = self.model_xgb.predict_proba(X)[:, 1]
         
         stacked_input = np.column_stack((p_cat, p_xgb))
         

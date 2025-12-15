@@ -34,7 +34,7 @@ app.mount("/metrics", metrics_app)
 predictor: FraudPredictor = None
 BASELINE_DATA: Optional[pd.DataFrame] = None
 DRIFT_BUFFER: List[Dict] = []
-DRIFT_BUFFER_SIE = 100
+DRIFT_BUFFER_SIZE = 100
 
 
 def load_baseline_data():
@@ -142,7 +142,7 @@ def predict_transaction(transaction: TransactionInput, background_tasks: Backgro
         if is_fraud:
             FRAUD_DETECTED.inc()
         DRIFT_BUFFER.append(features)
-        if len(DRIFT_BUFFER) >= DRIFT_BUFFER_SIE:
+        if len(DRIFT_BUFFER) >= DRIFT_BUFFER_SIZE:
             batch_to_check = DRIFT_BUFFER.copy()
             DRIFT_BUFFER.clear()
             background_tasks.add_task(check_data_drift, batch_to_check)
