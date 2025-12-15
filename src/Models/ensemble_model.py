@@ -10,7 +10,6 @@ from sklearn.metrics import average_precision_score
 import mlflow
 from models import AdvancedXGBClassifier
 import polars as pl
-from Utils.model_utils import TimeSeriesValidator
 
 class EnsembleModel(BaseEstimator, ClassifierMixin):
     def __init__(self, cat_features = None, num_features = None):
@@ -67,48 +66,32 @@ class EnsembleModel(BaseEstimator, ClassifierMixin):
         X = X.reset_index(drop=True)
         Y = Y.reset_index(drop=True)
 
-        tscv = TimeSeriesValidator(n_splits=3)
-        meta_preds_list = []
-        meta_y_list = []
         
         
-        for fold, (train_idx, val_idx) in enumerate(tscv.split(X)):
-            X_tr, X_val = X.iloc[train_idx], X.iloc[val_idx]
-            y_tr, y_val = Y.iloc[train_idx], Y.iloc[val_idx]
-            
-            self.model_cat.fit(X_tr, y_tr)
-            preds_cat = self.model_cat.predict_proba(X_val)[:, 1]
-
-            neg_count = (y_tr == 0).sum()
-            pos_count = (y_tr == 1).sum()
-            if pos_count == 0: weight = 1.0 
-            else: weight = neg_count / pos_count
-            
-            self.model_xgb.set_params(scale_pos_weight=weight)
-            
-            
-            self.model_xgb.fit(X_tr, y_tr)
-            preds_xgb = self.model_xgb.predict_proba(X_val)[:, 1]
-            
-            fold_meta_features = np.column_stack((preds_cat, preds_xgb))
-            
-            meta_preds_list.append(fold_meta_features)
-            meta_y_list.append(y_val)
-            
-            print(f"Fold {fold+1} processed. Train size: {len(train_idx)}, Val size: {len(val_idx)}")
-
-        meta_X = np.vstack(meta_preds_list)
-        meta_y = np.concatenate(meta_y_list)
         
-        print(f"Training Meta-Learner on {len(meta_y)} samples...")
-        self.meta_model.fit(meta_X, meta_y)
-        print("Retraining Base Models on full data")
+        
         self.model_cat.fit(X, Y)
-        
+        preds_cat = self.model_cat.predict_proba(X)[:, 1]
+
+        neg_count = (Y == 0).sum()
+        pos_count = (X == 1).sum()
+        if pos_count == 0: weight = 1.0 
+        else: weight = neg_count / pos_count
+            
+        self.model_xgb.set_params(scale_pos_weight=weight)
+            
+            
         self.model_xgb.fit(X, Y)
+        preds_xgb = self.model_xgb.predict_proba(X_val)[:, 1]
+            
+        meta_X = np.column_stack((preds_cat, preds_xgb))
+        
+        print(f"Training Meta-Learner on {len(Y)} samples...")
+        self.meta_model.fit(meta_X, Y)
         
         self.ensemble_fitted = True
         return self
+    
     def predict(self, X):
         if not self.ensemble_fitted: raise ValueError("Model not fitted")
         return np.argmax(self.predict_proba(X), axis=1)
