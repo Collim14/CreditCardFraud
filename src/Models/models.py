@@ -64,8 +64,8 @@ class AdvancedXGBClassifier(BaseEstimator, ClassifierMixin):
     def fit(self, X, y, eval_set=None, verbose=False):
         if isinstance(X, pl.LazyFrame):
             X = X.collect()
-        
-        dtrain = xgb.DMatrix(X, label=y, enable_categorical = True)
+     
+        dtrain = xgb.DMatrix(X, label=y, enable_categorical = True, )
         
         params = self.xgb_params.copy()
         num_rounds = params.pop('n_estimators', 100)

@@ -145,7 +145,7 @@ if __name__ == "__main__":
     runner = ExperimentRunner(
         experiment_name="Modular_Fraud_System"
     )
-    
+    runner.run_experiment("xgboost", n_trials=10)
     runner.run_experiment("ensemble", n_trials=10)
     
     runner.run_experiment("catboost", n_trials=10)

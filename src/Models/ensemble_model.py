@@ -9,6 +9,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score
 import mlflow
 from models import AdvancedXGBClassifier
+import polars as pl
+from Utils.model_utils import TimeSeriesValidator
 
 class EnsembleModel(BaseEstimator, ClassifierMixin):
     def __init__(self, cat_features = None, num_features = None):
@@ -16,6 +18,7 @@ class EnsembleModel(BaseEstimator, ClassifierMixin):
         self.num_features = num_features
         self.booster_ = None
         self.ensemble_fitted = False
+        
 
         self.model_cat = CatBoostClassifier(
             iterations=150, 
@@ -29,43 +32,93 @@ class EnsembleModel(BaseEstimator, ClassifierMixin):
         self.model_xgb = AdvancedXGBClassifier()
 
         self.meta_model = LogisticRegression()
+    def _to_pandas(self, data):
+      
+        if data is None:
+            return None
+            
+        if isinstance(data, pl.LazyFrame):
+            data = data.collect()
+            
+        if isinstance(data, (pl.DataFrame, pl.Series)):
+            pdf = data.to_pandas()
+        else:
+            pdf = data
+        if isinstance(pdf, pd.DataFrame):
+            pdf = pdf.copy()
+            
+            for col in self.cat_features:
+                if col in pdf.columns:
+                    pdf[col] = pdf[col].astype(object).fillna("Missing").astype(str)
+            for col in self.num_features:
+                if col in pdf.columns:
+                    pdf[col] = pd.to_numeric(pdf[col], errors='coerce').astype(float)
+        
+        return pdf
 
     def fit(self, X, Y):
-        skf = StratifiedKFold(n_splits = 5, shuffle = True, random_state = 61)
-        meta_features = np.zeros((X.shape[0],2))
-        print("Starting Stacking Process")
-        for fold, (train_idx, val_idx) in enumerate(skf.split(X,Y)):
+        X = self._to_pandas(X)
+        Y = self._to_pandas(Y)
+        
+        if isinstance(Y, pd.DataFrame):
+            Y = Y.iloc[:, 0]
+        
+        X = X.reset_index(drop=True)
+        Y = Y.reset_index(drop=True)
+
+        tscv = TimeSeriesValidator(n_splits=3)
+        meta_preds_list = []
+        meta_y_list = []
+        
+        
+        for fold, (train_idx, val_idx) in enumerate(tscv.split(X)):
             X_tr, X_val = X.iloc[train_idx], X.iloc[val_idx]
-            y_tr = Y.iloc[train_idx]
+            y_tr, y_val = Y.iloc[train_idx], Y.iloc[val_idx]
+            
             self.model_cat.fit(X_tr, y_tr)
             preds_cat = self.model_cat.predict_proba(X_val)[:, 1]
 
             neg_count = (y_tr == 0).sum()
             pos_count = (y_tr == 1).sum()
-            weight = neg_count / pos_count
+            if pos_count == 0: weight = 1.0 
+            else: weight = neg_count / pos_count
+            
             self.model_xgb.set_params(scale_pos_weight=weight)
-            self.model_xgb.fit(X_tr[self.num_features], y_tr)
-            preds_xgb = self.model_xgb.predict_proba(X_val[self.num_features])[:, 1]
             
-            meta_features[val_idx, 0] = preds_cat
-            meta_features[val_idx, 1] = preds_xgb
+            cols_xgb = self.num_features if self.num_features else X_tr.columns
+            cols_xgb = [c for c in cols_xgb if c in X_tr.columns]
             
-            print(f"Fold {fold+1} processed.")
-        print("Training Meta-Learner...")
-        self.meta_model.fit(meta_features, Y)
+            self.model_xgb.fit(X_tr[cols_xgb], y_tr)
+            preds_xgb = self.model_xgb.predict_proba(X_val[cols_xgb])[:, 1]
+            
+            fold_meta_features = np.column_stack((preds_cat, preds_xgb))
+            
+            meta_preds_list.append(fold_meta_features)
+            meta_y_list.append(y_val)
+            
+            print(f"Fold {fold+1} processed. Train size: {len(train_idx)}, Val size: {len(val_idx)}")
+
+        meta_X = np.vstack(meta_preds_list)
+        meta_y = np.concatenate(meta_y_list)
         
-        print("Retraining Base Models on Full Data...")
+        print(f"Training Meta-Learner on {len(meta_y)} samples...")
+        self.meta_model.fit(meta_X, meta_y)
+        print("Retraining Base Models on full data")
         self.model_cat.fit(X, Y)
-        self.model_xgb.fit(X[self.num_features], Y)
-        self.ensemble_fitted = True
         
+        cols_xgb = self.num_features if self.num_features else X.columns
+        cols_xgb = [c for c in cols_xgb if c in X.columns]
+        self.model_xgb.fit(X[cols_xgb], Y)
+        
+        self.ensemble_fitted = True
         return self
     def predict(self, X):
         if not self.ensemble_fitted: raise ValueError("Model not fitted")
         return np.argmax(self.predict_proba(X), axis=1)
 
     def predict_proba(self, X):
-        p_cat = self.model_cat.predict_proba(X)[:, 1]
+        X_cat = self._to_pandas(X)
+        p_cat = self.model_cat.predict_proba(X_cat)[:, 1]
         p_xgb = self.model_xgb.predict_proba(X[self.num_features])[:, 1]
         
         stacked_input = np.column_stack((p_cat, p_xgb))
@@ -87,41 +140,4 @@ class EnsembleModel(BaseEstimator, ClassifierMixin):
       
         return self.meta_model.coef_[0]
     
-def run_ensemble_training():
-    mlflow.set_experiment("Ensemble_Fraud_Detection")
-    
-    df = pd.DataFrame(np.random.randn(1000, 10), columns=[f"V{i}" for i in range(10)])
 
-    df['Merchant'] = np.random.choice(['A', 'B', 'C', 'D'], 1000)
-    df['Zip'] = np.random.choice(['10001', '90210', '33101'], 1000)
-
-    y = pd.DataFrame(np.random.randint(0, 2, 1000))
-    
-    cat_cols = ['Merchant', 'Zip']
-    num_cols = [f"V{i}" for i in range(10)]
-    
-    with mlflow.start_run(run_name="Hybrid_Stacking"):
-        
-        ensemble = EnsembleModel(cat_features=cat_cols, num_features=num_cols)
-        
-        ensemble.fit(df, y)
-        
-        probs = ensemble.predict_proba(df)[:, 1]
-        score = average_precision_score(y, probs)
-        
-        mlflow.log_metric("training_auprc", score)
-        
-        mlflow.log_param("meta_learner", "LogisticRegression")
-        mlflow.log_param("base_model_1", "CatBoost")
-        mlflow.log_param("base_model_2", "XGBoost")
-        
-        weights = ensemble.meta_model.coef_[0]
-        mlflow.log_metric("weight_catboost", weights[0])
-        mlflow.log_metric("weight_xgboost", weights[1])
-        
-        print(f"Ensemble Training Complete. Meta-Weights: Cat={weights[0]:.2f}, XGB={weights[1]:.2f}")
-        
-        mlflow.sklearn.log_model(ensemble, "ensemble_model")
-
-if __name__ == "__main__":
-    run_ensemble_training()
