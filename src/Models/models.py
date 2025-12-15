@@ -24,7 +24,7 @@ class AdvancedXGBClassifier(BaseEstimator, ClassifierMixin):
         if 'objective' not in self.xgb_params:
             self.xgb_params['objective'] = 'binary:logistic'
         if 'device' not in self.xgb_params:
-            self.xgb_params['device'] = 'cuda' if xgb.is_built_with_cuda() else 'cpu'
+            self.xgb_params['device'] = 'cpu'
 
     def _sigmoid(self, x):
         return 1.0 / (1.0 + np.exp(-x))

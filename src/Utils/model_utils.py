@@ -57,7 +57,7 @@ class TimeSeriesValidator:
     def __init__(self, n_splits = 5):
         self.n_splits = n_splits
 
-    def split(self, X, y):
+    def split(self, X):
         inds = np.arange(len(X))
         fold_size = len(X) // (self.n_splits + 1)
         for i in range(self.n_splits):

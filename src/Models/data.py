@@ -36,6 +36,7 @@ class DataHandler:
                 self.cat_features.append(col)
             elif dtype in [pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.Float32, pl.Float64]:
                 self.num_features.append(col)
+       
         
         print("Dataframe processed")
 

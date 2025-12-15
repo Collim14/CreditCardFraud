@@ -1,6 +1,7 @@
 
 
 import pandas as pd
+import polars as pl
 import numpy as np
 import os
 import time
@@ -33,38 +34,47 @@ from ModelFactory import ModelFactory
 
 
 class ExperimentRunner:
-    def __init__(self, experiment_name, X, y):
+    def __init__(self, experiment_name):
         self.experiment_name = experiment_name
         mlflow.set_experiment(experiment_name)
-        self.X, self.y =  X, y
-        counts = self.y.value_counts()
-        self.neg_pos_ratio = counts[0] / counts[1]
-        self.cat_cols = self.X.select_dtypes(include=['category']).columns.tolist()
-        self.num_cols = self.X.select_dtypes(include=['int8', 'float32', 'float64', 'int16']).columns.tolist()
-      
-        self.X = self.X.convert_dtypes(infer_objects=True)
+        self.datah = DataHandler()
+
+        self.datah.process(data_path, target_col=target_col)
+        counts = self.datah.df.select([
+            (pl.col(self.datah.target_col) == 0).sum().alias("neg"),
+            (pl.col(self.datah.target_col) == 1).sum().alias("pos")
+        ]).collect()
+
+        neg_count = counts["neg"][0]
+        pos_count = counts["pos"][0]
+        
+        self.neg_pos_ratio = neg_count / pos_count
+        
        
         
 
-    def objective(self, trial, model_name):
+    def objective(self, trial, model_name, X_sample, y_sample):
         with mlflow.start_run(nested = True, run_name = f"Trial_{trial.number}"):
             params = SearchSpaceRegistry.get_search_space(model_name=model_name,trial=trial)
+            neg_local = (y_sample == 0).sum()
+            pos_local = (y_sample == 1).sum()
+            local_ratio = neg_local / pos_local
             if model_name == "ensemble":
-                params["cat_features"] = self.cat_cols
-                params["num_features"] = self.num_cols
-                params["xgb_scale_pos_weight"] = self.neg_pos_ratio
+                params["cat_features"] = self.datah.cat_features
+                params["num_features"] = self.datah.num_features
+                params["xgb_scale_pos_weight"] = local_ratio
                 params['xgb_enable_categorical'] = True
             elif model_name == "xgboost":
                 params['enable_categorical'] = True
-                params["scale_pos_weight"] = self.neg_pos_ratio
+                params["scale_pos_weight"] = local_ratio
             model = ModelFactory.create_model(params)
             cv = TimeSeriesValidator(n_splits=3)
             auc_scores = []
         
-            for train_idx, val_idx in cv.split(self.X, self.y):
+            for train_idx, val_idx in cv.split(X_sample):
                
-                X_tr, X_val = self.X.iloc[train_idx], self.X.iloc[val_idx]
-                y_tr, y_val = self.y.iloc[train_idx], self.y.iloc[val_idx]
+                X_tr, X_val = X_sample[train_idx], X_sample[val_idx]
+                y_tr, y_val = y_sample[train_idx], y_sample[val_idx]
             
                 model.fit(X_tr, y_tr)
                 if hasattr(model, "predict_proba"):
@@ -85,9 +95,12 @@ class ExperimentRunner:
     def run_experiment(self, model_name, n_trials):
         print(f"--- Starting Optimisation for {model_name} ---")
         with mlflow.start_run(run_name=f"HPO_{model_name}") as parent_run:
+            df_sample = self.datah.get_hpo_sample(time_col= 'TransactionDT', frac=0.1)
+            y_sample = df_sample.drop_in_place(self.datah.target_col)
+            X_sample = df_sample
             study = optuna.create_study(direction="maximize")
             
-            study.optimize(lambda trial: self.objective(trial, model_name), n_trials=n_trials)
+            study.optimize(lambda trial: self.objective(trial, model_name, X_sample, y_sample), n_trials=n_trials)
             
             best_trial = study.best_trial
             print(f"Best AUPRC for {model_name}: {best_trial.value:.4f}")
@@ -96,19 +109,22 @@ class ExperimentRunner:
             mlflow.log_metric("best_cv_score", best_trial.value)
             mlflow.log_artifacts()
         with mlflow.start_run(run_name=f"Final_Best_{model_name}"):
+            full_df = self.datah.df.collect() 
+            y_full = full_df.drop_in_place(self.datah.target_col)
+            X_full = full_df
             best_params = best_trial.params
             if model_name == "ensemble":
-                best_params["cat_features"] = self.cat_cols
-                best_params["num_features"] = self.num_cols
+                best_params["cat_features"] = self.datah.cat_features
+                best_params["num_features"] = self.datah.num_features
                 best_params["xgb_scale_pos_weight"] = self.neg_pos_ratio
                 best_params['xgb_enable_categorical'] = True
             elif model_name == "xgboost":
                 best_params['enable_categorical'] = True
                 best_params["scale_pos_weight"] = self.neg_pos_ratio
             final_model = ModelFactory.create_model(best_params)
-            final_model.fit(self.X, self.y)
-            predictions = final_model.predict(self.X.iloc[:5])
-            signature = infer_signature(self.X.iloc[:5], predictions)
+            final_model.fit(X_full, y_full)
+            predictions = final_model.predict(X_full[:5])
+            signature = infer_signature(X_full[:5].to_pandas(), predictions)
             mlflow.sklearn.log_model(
                 sk_model=final_model,
                 artifact_path="model",
@@ -125,11 +141,9 @@ if __name__ == "__main__":
     target_col="isFraud"
     datah = DataHandler()
 
-    datah.process(data_path, target_col=target_col, transform=False)
+    datah.process(data_path, target_col=target_col)
     runner = ExperimentRunner(
-        experiment_name="Modular_Fraud_System",
-        X = datah.X,
-        y=datah.y
+        experiment_name="Modular_Fraud_System"
     )
     
     runner.run_experiment("ensemble", n_trials=10)
