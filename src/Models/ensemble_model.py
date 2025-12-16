@@ -12,7 +12,7 @@ from models import AdvancedXGBClassifier
 import polars as pl
 
 class EnsembleModel(BaseEstimator, ClassifierMixin):
-    def __init__(self, cat_features = None, num_features = None):
+    def __init__(self, cat_features = None, num_features = None, meta_split_ratio=0.3, refit_base_on_full=True):
         self.cat_features = cat_features
         self.num_features = num_features
         self.booster_ = None
@@ -31,6 +31,9 @@ class EnsembleModel(BaseEstimator, ClassifierMixin):
         self.model_xgb = AdvancedXGBClassifier()
 
         self.meta_model = LogisticRegression()
+
+        self.meta_split_ratio = meta_split_ratio
+        self.refit_base_on_full = refit_base_on_full
     def _to_pandas(self, data):
       
         if data is None:
@@ -66,12 +69,16 @@ class EnsembleModel(BaseEstimator, ClassifierMixin):
         X = X.reset_index(drop=True)
         Y = Y.reset_index(drop=True)
 
+        splitindx = int(len(X)*(1-self.meta_split_ratio))
+        X_base, X_meta = X.iloc[:splitindx], X.iloc[splitindx:]
+        Y_base, Y_meta = X.iloc[:splitindx], X.iloc[splitindx:]
+
         
         
         
         
-        self.model_cat.fit(X, Y)
-        preds_cat = self.model_cat.predict_proba(X)[:, 1]
+        self.model_cat.fit(X_base, Y_base)
+        preds_cat = self.model_cat.predict_proba(X_meta)[:, 1]
 
         neg_count = (Y == 0).sum()
         pos_count = (X == 1).sum()
@@ -81,14 +88,23 @@ class EnsembleModel(BaseEstimator, ClassifierMixin):
         self.model_xgb.set_params(scale_pos_weight=weight)
             
             
-        self.model_xgb.fit(X, Y)
-        preds_xgb = self.model_xgb.predict_proba(X_val)[:, 1]
+        self.model_xgb.fit(X_base, Y_base)
+        preds_xgb = self.model_xgb.predict_proba(X_meta)[:, 1]
             
         meta_X = np.column_stack((preds_cat, preds_xgb))
         
-        print(f"Training Meta-Learner on {len(Y)} samples...")
-        self.meta_model.fit(meta_X, Y)
+        print(f"Training Meta-Learner on {len(Y_meta)} samples...")
+        self.meta_model.fit(meta_X, Y_meta)
         
+        if self.refit_base_on_full:
+            neg_count = (Y == 0).sum()
+            pos_count = (Y== 1).sum()
+            weight = neg_count / pos_count if pos_count > 0 else 1.0
+            self.model_xgb.set_params(scale_pos_weight=weight)
+            
+            self.model_cat.fit(X, Y)
+            self.model_xgb.fit(X, Y)
+            
         self.ensemble_fitted = True
         return self
     
